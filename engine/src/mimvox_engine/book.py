@@ -12,6 +12,7 @@ import re
 import shutil
 import threading
 import time
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -134,10 +135,44 @@ def _segs_path(data: config.DataDir, book_id: str, k: int) -> str:
     return os.path.join(_work(data, book_id), f"{k + 1:03d}.segments.json")
 
 
+# Cyrillic and Greek letters typed in place of Latin ones in Roman numerals ("РОЗДІЛ І" for "РОЗДІЛ I").
+_ROMAN_LOOKALIKE = str.maketrans("\u0456\u0445\u0441\u043c\u03b9\u03c7\u03bc", "ixcmixm")
+_ROMAN = re.compile(r"m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})")
+_ROMAN_VALUES = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+
+
+def _heading_token(token: str) -> str:
+    if token.isdigit():
+        return str(int(token))
+    r = token.translate(_ROMAN_LOOKALIKE)
+    if _ROMAN.fullmatch(r):
+        v = [_ROMAN_VALUES[ch] for ch in r]
+        return str(sum(-a if a < b else a for a, b in zip(v, v[1:] + [0])))
+    return token
+
+
+def _heading_key(s: str) -> str:
+    """Case, punctuation, compatibility forms (Ⅻ, ｉ) and how a number is written (1, I, Ⅰ) do not count."""
+    return " ".join(_heading_token(t) for t in re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", s).casefold()))
+
+
+def heading_in_text(title: str, text: str) -> bool:
+    """The chapter's text opens with its own heading (often after the book's title and author)."""
+    key = _heading_key(title)
+    if not key:
+        return False
+    for para in re.split(r"\n\s*\n|\n", text.strip())[:5]:
+        if len(para) > 80:
+            return False
+        if _heading_key(para) == key:
+            return True
+    return False
+
+
 def spoken_text(chapter: dict[str, Any], read_titles: bool) -> str:
     title = re.sub(r"\s+", " ", str(chapter.get("title") or "")).strip()
     text = str(chapter.get("text") or "").strip()
-    if not read_titles or not title:
+    if not read_titles or not title or heading_in_text(title, text):
         return text
     if not re.search(r"[.!?…:;]$", title):
         title += "."
@@ -509,8 +544,11 @@ def _prepare_chapter_locked(data: config.DataDir, bid: str, k: int, book: dict[s
         segs = [(str(t), int(p), str(kind)) for t, p, kind in saved.get("segments") or []]
     if not segs:
         ch = book["chapters"][k]
-        titles = bool(book["settings"].get("read_titles", True))
-        segs = narration.segments(ch.get("title") if titles else None, str(ch.get("text") or ""), count)
+        text = str(ch.get("text") or "")
+        title = ch.get("title") if book["settings"].get("read_titles", True) else None
+        if title and heading_in_text(str(title), text):
+            title = None
+        segs = narration.segments(title, text, count)
         if not segs:
             segs = [(".", narration.PAUSES["end"], "end")]
         os.makedirs(os.path.dirname(path), exist_ok=True)
