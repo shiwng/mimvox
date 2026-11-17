@@ -1810,7 +1810,8 @@ def run_move(args: argparse.Namespace) -> int:
             pass
         gpu = Gpu(str(device.get("backend", "cuda")), str(device.get("name", "")), float(device.get("vram_gb", 0.0)),
                   str(device.get("vendor", "")))
-        setup = Setup(root=Path(__file__).resolve().parents[2], plat=plat, arch=host_arch(), data_dir=new, gpu=gpu)
+        setup = Setup(root=Path(__file__).resolve().parents[2], plat=plat, arch=host_arch(), data_dir=new, gpu=gpu,
+                      components=previous_components(new) or set(COMPONENTS))
         setup.write_runtime_toml()  # also writes (or removes) location.toml
         mv.out("Rewrote runtime.toml and the location pointer")
         if not args.no_check:
