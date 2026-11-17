@@ -1443,15 +1443,16 @@ class Setup:
 
     def _check_media(self) -> list[str]:
         problems: list[str] = []
+        exe = ".exe" if self.plat == "windows" else ""
+        portable = all((self.ffmpeg_dir() / f"{name}{exe}").is_file() for name in ("ffmpeg", "ffprobe"))
         if self.plat == "windows":
-            folder = self.applio
-            found = all((folder / exe).is_file() for exe in APPLIO_WINDOWS_REQUIRED)
+            found = portable or all((self.applio / name).is_file() for name in APPLIO_WINDOWS_REQUIRED)
         else:
-            found = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+            found = portable or bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
         if found:
             say("ffmpeg and ffprobe: present.")
         else:
-            where = "the Applio folder" if self.plat == "windows" else "PATH"
+            where = ("the Applio folder" if self.plat == "windows" else "PATH") + f" or {self.ffmpeg_dir()}"
             problems.append(f"ffmpeg / ffprobe not found in {where}: audio and video files cannot be read or exported.")
         py = self.engine_python()
         if py.exists():
